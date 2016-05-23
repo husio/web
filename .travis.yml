@@ -1,0 +1,11 @@
+language: go
+
+go:
+- 1.6
+- tip
+
+script:
+- go test -v -race -timeout=90s github.com/optiopay/web/...
+- go vet github.com/optiopay/web/...
+
+sudo: false
