@@ -80,26 +80,11 @@ func Modified(w http.ResponseWriter, r *http.Request, modtime time.Time) bool {
 	return true
 }
 
-// RedirectHandler return HandlerFunc that always redirect to given url.
-func RedirectHandler(url string, code int) HandlerFunc {
-	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, url, code)
-	}
-}
-
 // StdJSONHandler return HandlerFunc that always response with JSON encoded,
 // standard for given status code text message.
 func StdJSONHandler(code int) HandlerFunc {
 	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		StdJSONResp(w, code)
-	}
-}
-
-// StaticHandler return HandlerFunc that serve content of given directory.
-func StaticHandler(root string) HandlerFunc {
-	h := http.StripPrefix("/"+root, http.FileServer(http.Dir(root)))
-	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		h.ServeHTTP(w, r)
 	}
 }
 

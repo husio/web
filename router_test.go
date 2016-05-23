@@ -8,7 +8,7 @@ import (
 	"golang.org/x/net/context"
 )
 
-func TestRouter(t *testing.T) {
+func TestRouting(t *testing.T) {
 	var result struct {
 		id     int
 		values []string
@@ -25,17 +25,17 @@ func TestRouter(t *testing.T) {
 	}
 
 	rt := NewRouter(Routes{
-		{`/x/{w:\w+}/{n:\d+}`, testhandler(11, "w", "n"), "GET"},
-		{`/x/{n:\d+}/{w:\w+}`, testhandler(12, "w", "n"), "GET"},
-		{`/x/{n:\d+}-{w:\w+}`, testhandler(13, "w", "n"), "GET"},
+		{`/x/(w:\w+)/(n:\d+)`, testhandler(11, "w", "n"), "GET"},
+		{`/x/(n:\d+)/(w:\w+)`, testhandler(12, "w", "n"), "GET"},
+		{`/x/(n:\d+)-(w:\w+)`, testhandler(13, "w", "n"), "GET"},
 
 		{`/x/321`, testhandler(22), "GET"},
-		{`/x/{first}`, testhandler(21, "first"), "GET"},
+		{`/x/(first)`, testhandler(21, "first"), "GET"},
 
 		{`/`, testhandler(31), "GET"},
-		{`/{a}/{b}`, testhandler(32, "a", "b"), "GET"},
-		{`/{a}/{b}/{c}`, testhandler(33, "a", "b", "c"), "GET"},
-		{`/{a}/{b}/{c}/{d}`, testhandler(34, "a", "b", "c", "d"), "GET"},
+		{`/(a)/(b)`, testhandler(32, "a", "b"), "GET"},
+		{`/(a)/(b)/(c)`, testhandler(33, "a", "b", "c"), "GET"},
+		{`/(a)/(b)/(c)/(d)`, testhandler(34, "a", "b", "c", "d"), "GET"},
 	})
 
 	var testCases = []struct {
@@ -79,9 +79,53 @@ func TestRouter(t *testing.T) {
 	}
 }
 
+func TestHandlerTypes(t *testing.T) {
+	cases := map[string]interface{}{
+		"http.Handler": teapothandler{},
+		"http.HandlerFunc": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTeapot)
+		},
+		"http.HandlerFunc2": http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTeapot)
+		}),
+		"ServeCtxHTTP": teapothandler2{},
+		"HanndlerFunc": func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTeapot)
+		},
+		"HanndlerFunc2": HandlerFunc(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTeapot)
+		}),
+		"Router": NewRouter(Routes{
+			{`.*`, func(ctx context.Context, w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) }, "*"},
+		}),
+	}
+
+	for name, hn := range cases {
+		rt := NewRouter(Routes{{`/`, hn, "*"}})
+		r, _ := http.NewRequest("GET", "/", nil)
+		w := httptest.NewRecorder()
+		rt.ServeHTTP(w, r)
+		if w.Code != http.StatusTeapot {
+			t.Errorf("%s: got %d, %v", name, w.Code, w.Body)
+		}
+	}
+}
+
+type teapothandler struct{}
+
+func (h teapothandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusTeapot)
+}
+
+type teapothandler2 struct{}
+
+func (h teapothandler2) ServeCtxHTTP(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusTeapot)
+}
+
 func TestRouterDefaultNotFound(t *testing.T) {
 	rt := NewRouter(Routes{
-		{`/foo`, func(context.Context, http.ResponseWriter, *http.Request) {}, "GET"},
+		{`/foo`, handleWithPanic, "GET"},
 	})
 
 	r, _ := http.NewRequest("GET", "/baz", nil)
@@ -94,7 +138,7 @@ func TestRouterDefaultNotFound(t *testing.T) {
 
 func TestRouterCustomNotFound(t *testing.T) {
 	rt := NewRouter(Routes{
-		{`/foo`, func(context.Context, http.ResponseWriter, *http.Request) {}, "GET"},
+		{`/foo`, handleWithPanic, "GET"},
 	})
 	rt.NotFound = func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
@@ -110,7 +154,7 @@ func TestRouterCustomNotFound(t *testing.T) {
 
 func TestRouterDefaultMethodNotAllowed(t *testing.T) {
 	rt := NewRouter(Routes{
-		{`/foo`, func(context.Context, http.ResponseWriter, *http.Request) {}, "GET"},
+		{`/foo`, handleWithPanic, "GET"},
 	})
 
 	r, _ := http.NewRequest("POST", "/foo", nil)
@@ -123,7 +167,7 @@ func TestRouterDefaultMethodNotAllowed(t *testing.T) {
 
 func TestRouterCustomMethodNotAllowed(t *testing.T) {
 	rt := NewRouter(Routes{
-		{`/foo`, func(context.Context, http.ResponseWriter, *http.Request) {}, "GET"},
+		{`/foo`, handleWithPanic, "GET"},
 	})
 	rt.MethodNotAllowed = func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
@@ -135,6 +179,10 @@ func TestRouterCustomMethodNotAllowed(t *testing.T) {
 	if w.Code != http.StatusTeapot {
 		t.Errorf("got %d: %s", w.Code, w.Body)
 	}
+}
+
+func handleWithPanic(context.Context, http.ResponseWriter, *http.Request) {
+	panic("!")
 }
 
 func diff(a, b []string) []string {

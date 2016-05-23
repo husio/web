@@ -13,6 +13,14 @@ type Routes []Route
 
 type HandlerFunc func(context.Context, http.ResponseWriter, *http.Request)
 
+func (fn HandlerFunc) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	fn(context.Background(), w, r)
+}
+
+func (fn HandlerFunc) ServeCtxHTTP(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+	fn(ctx, w, r)
+}
+
 // Route binds together HTTP method, path and handler function.
 type Route struct {
 	// Path defines regexp-like pattern match used to determine if route should
@@ -20,7 +28,14 @@ type Route struct {
 	Path string
 	// Func defines HTTP handler that is used to serve request when route is
 	// matching.
-	Func HandlerFunc
+	//
+	// Handler can be one following interfaces:
+	// * http.Handler: interface with ServeHTTP(http.ResponseWriter, *http.Request)
+	// * http.HandlerFunc: func(http.ResponseWriter, *http.Request)
+	// * HandlerFunc: func(context.Context, http.ResponseWriter, *http.Request)
+	// * interface with ServeCtxHTTP(context.Context, http.ResponseWriter, *http.Request)
+	Handler interface{}
+
 	// Method is string that can represent one or more, coma separated HTTP
 	// methods that this route should match.
 	// Method can be set to "*" to match any request no matter method.
@@ -30,7 +45,7 @@ type Route struct {
 // NewRouter create and return immutable router instance.
 func NewRouter(routes Routes) *Router {
 	var handlers []handler
-	builder := regexp.MustCompile("{.*?}")
+	builder := regexp.MustCompile(`\(.*?\)`)
 
 	for _, r := range routes {
 		var names []string
@@ -57,11 +72,31 @@ func NewRouter(routes Routes) *Router {
 			methods[strings.TrimSpace(method)] = struct{}{}
 		}
 
+		var fn HandlerFunc
+		switch h := r.Handler.(type) {
+		case func(context.Context, http.ResponseWriter, *http.Request):
+			fn = h
+		case HandlerFunc:
+			fn = h
+		case ctxhandler:
+			fn = func(ctx context.Context, w http.ResponseWriter, r *http.Request) { h.ServeCtxHTTP(ctx, w, r) }
+
+		case http.Handler:
+			fn = func(ctx context.Context, w http.ResponseWriter, r *http.Request) { h.ServeHTTP(w, r) }
+		case http.HandlerFunc:
+			fn = func(ctx context.Context, w http.ResponseWriter, r *http.Request) { h(w, r) }
+		case func(http.ResponseWriter, *http.Request):
+			fn = func(ctx context.Context, w http.ResponseWriter, r *http.Request) { h(w, r) }
+
+		default:
+			panic(fmt.Sprintf("invalid handler for %s %s: %T", r.Methods, r.Path, r.Handler))
+		}
+
 		handlers = append(handlers, handler{
 			methods: methods,
 			rx:      rx,
 			names:   names,
-			fn:      r.Func,
+			fn:      fn,
 		})
 	}
 
@@ -70,6 +105,10 @@ func NewRouter(routes Routes) *Router {
 		NotFound:         StdTextHandler(http.StatusNotFound),
 		MethodNotAllowed: StdTextHandler(http.StatusMethodNotAllowed),
 	}
+}
+
+type ctxhandler interface {
+	ServeCtxHTTP(context.Context, http.ResponseWriter, *http.Request)
 }
 
 type Router struct {
@@ -122,12 +161,6 @@ func (rt *Router) ServeCtxHTTP(ctx context.Context, w http.ResponseWriter, r *ht
 		rt.MethodNotAllowed(ctx, w, r)
 	} else {
 		rt.NotFound(ctx, w, r)
-	}
-}
-
-func (rt *Router) HandlerFunc() HandlerFunc {
-	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		rt.ServeCtxHTTP(ctx, w, r)
 	}
 }
 
