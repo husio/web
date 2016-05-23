@@ -79,6 +79,64 @@ func TestRouter(t *testing.T) {
 	}
 }
 
+func TestRouterDefaultNotFound(t *testing.T) {
+	rt := NewRouter(Routes{
+		{`/foo`, func(context.Context, http.ResponseWriter, *http.Request) {}, "GET"},
+	})
+
+	r, _ := http.NewRequest("GET", "/baz", nil)
+	w := httptest.NewRecorder()
+	rt.ServeHTTP(w, r)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("got %d: %s", w.Code, w.Body)
+	}
+}
+
+func TestRouterCustomNotFound(t *testing.T) {
+	rt := NewRouter(Routes{
+		{`/foo`, func(context.Context, http.ResponseWriter, *http.Request) {}, "GET"},
+	})
+	rt.NotFound = func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}
+
+	r, _ := http.NewRequest("GET", "/bar", nil)
+	w := httptest.NewRecorder()
+	rt.ServeHTTP(w, r)
+	if w.Code != http.StatusTeapot {
+		t.Errorf("got %d: %s", w.Code, w.Body)
+	}
+}
+
+func TestRouterDefaultMethodNotAllowed(t *testing.T) {
+	rt := NewRouter(Routes{
+		{`/foo`, func(context.Context, http.ResponseWriter, *http.Request) {}, "GET"},
+	})
+
+	r, _ := http.NewRequest("POST", "/foo", nil)
+	w := httptest.NewRecorder()
+	rt.ServeHTTP(w, r)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("got %d: %s", w.Code, w.Body)
+	}
+}
+
+func TestRouterCustomMethodNotAllowed(t *testing.T) {
+	rt := NewRouter(Routes{
+		{`/foo`, func(context.Context, http.ResponseWriter, *http.Request) {}, "GET"},
+	})
+	rt.MethodNotAllowed = func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}
+
+	r, _ := http.NewRequest("POST", "/foo", nil)
+	w := httptest.NewRecorder()
+	rt.ServeHTTP(w, r)
+	if w.Code != http.StatusTeapot {
+		t.Errorf("got %d: %s", w.Code, w.Body)
+	}
+}
+
 func diff(a, b []string) []string {
 	var diff []string
 

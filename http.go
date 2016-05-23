@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -99,5 +100,16 @@ func StaticHandler(root string) HandlerFunc {
 	h := http.StripPrefix("/"+root, http.FileServer(http.Dir(root)))
 	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, r)
+	}
+}
+
+// StdTextHandler return HandlerFunc that always response with text/plain
+// formatted, standard for given status code text message.
+func StdTextHandler(code int) HandlerFunc {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.WriteHeader(code)
+		fmt.Fprintln(w, http.StatusText(code))
 	}
 }

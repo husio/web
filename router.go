@@ -29,9 +29,8 @@ type Route struct {
 
 // NewRouter create and return immutable router instance.
 func NewRouter(routes Routes) *Router {
-	handlers := make(map[string][]handler)
+	var handlers []handler
 	builder := regexp.MustCompile("{.*?}")
-	// ReplaceAllString
 
 	for _, r := range routes {
 		var names []string
@@ -52,22 +51,36 @@ func NewRouter(routes Routes) *Router {
 		if err != nil {
 			panic(fmt.Sprintf("invalid routing path %q: %s", r.Path, err))
 		}
+
+		methods := make(map[string]struct{})
 		for _, method := range strings.Split(r.Methods, ",") {
-			method = strings.TrimSpace(method)
-			handlers[method] = append(handlers[method], handler{
-				rx:    rx,
-				names: names,
-				fn:    r.Func,
-			})
+			methods[strings.TrimSpace(method)] = struct{}{}
 		}
+
+		handlers = append(handlers, handler{
+			methods: methods,
+			rx:      rx,
+			names:   names,
+			fn:      r.Func,
+		})
 	}
+
 	return &Router{
-		handlers: handlers,
+		handlers:         handlers,
+		NotFound:         StdTextHandler(http.StatusNotFound),
+		MethodNotAllowed: StdTextHandler(http.StatusMethodNotAllowed),
 	}
 }
 
 type Router struct {
-	handlers map[string][]handler // method => route
+	handlers []handler
+
+	// NotFound is called when none of defined handlers match current route.
+	NotFound HandlerFunc
+
+	// MethodNotAllowed is called when there is path match but not for current
+	// method.
+	MethodNotAllowed HandlerFunc
 }
 
 // ServeHTTP handle HTTP request using empty context.
@@ -78,13 +91,25 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // ServeCtxHTTP handle HTTP request using given context.
 func (rt *Router) ServeCtxHTTP(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-	for _, h := range rt.handlers[r.Method] {
+	var pathMatch bool
+
+	for _, h := range rt.handlers {
 		match := h.rx.FindAllStringSubmatch(r.URL.Path, 1)
 		if len(match) == 0 {
 			continue
 		}
-		values := match[0]
 
+		pathMatch = true
+
+		_, ok := h.methods[r.Method]
+		if !ok {
+			_, ok = h.methods["*"]
+		}
+		if !ok {
+			continue
+		}
+
+		values := match[0]
 		ctx = context.WithValue(ctx, "router:args", &args{
 			names:  h.names,
 			values: values[1:],
@@ -92,19 +117,11 @@ func (rt *Router) ServeCtxHTTP(ctx context.Context, w http.ResponseWriter, r *ht
 		h.fn(ctx, w, r)
 		return
 	}
-	for _, h := range rt.handlers["*"] {
-		match := h.rx.FindAllStringSubmatch(r.URL.Path, 1)
-		if len(match) == 0 {
-			continue
-		}
-		values := match[0]
 
-		ctx = context.WithValue(ctx, "router:args", &args{
-			names:  h.names,
-			values: values[1:],
-		})
-		h.fn(ctx, w, r)
-		return
+	if pathMatch {
+		rt.MethodNotAllowed(ctx, w, r)
+	} else {
+		rt.NotFound(ctx, w, r)
 	}
 }
 
@@ -154,9 +171,10 @@ func (a *args) ByIndex(n int) string {
 }
 
 type handler struct {
-	rx    *regexp.Regexp
-	names []string
-	fn    HandlerFunc
+	methods map[string]struct{}
+	rx      *regexp.Regexp
+	names   []string
+	fn      HandlerFunc
 }
 
 // Args return PathArgs carried by given context.
