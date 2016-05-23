@@ -125,6 +125,12 @@ func (rt *Router) ServeCtxHTTP(ctx context.Context, w http.ResponseWriter, r *ht
 	}
 }
 
+func (rt *Router) HandlerFunc() HandlerFunc {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+		rt.ServeCtxHTTP(ctx, w, r)
+	}
+}
+
 type args struct {
 	names  []string
 	values []string
