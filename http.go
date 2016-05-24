@@ -29,7 +29,7 @@ func JSONErr(w http.ResponseWriter, errText string, code int) {
 // JSONErrs write multiple errors as JSON encoded response.
 func JSONErrs(w http.ResponseWriter, errs []string, code int) {
 	resp := struct {
-		Code   int
+		Code   int      `json:"code"`
 		Errors []string `json:"errors"`
 	}{
 		Code:   code,
@@ -53,8 +53,8 @@ func StdJSONResp(w http.ResponseWriter, code int) {
 func JSONRedirect(w http.ResponseWriter, urlStr string, code int) {
 	w.Header().Set("Location", urlStr)
 	var content = struct {
-		Code     int
-		Location string
+		Code     int    `json:"code"`
+		Location string `json:"location"`
 	}{
 		Code:     code,
 		Location: urlStr,
