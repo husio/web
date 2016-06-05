@@ -24,8 +24,20 @@ func (fn HandlerFunc) ServeCtxHTTP(ctx context.Context, w http.ResponseWriter, r
 // Route binds together HTTP method, path and handler function.
 type Route struct {
 	// Path defines regexp-like pattern match used to determine if route should
-	// handle request.
+	// handle request. Use brackets // syntax to pass part of the URL as
+	// argument to handler. For example:
+	//
+	//     /blog/(blog-key)
+	//
+	// Match ^/blog/([^/]+)$ and will pass result of matching ([^/]+) into
+	// handler as blog-key.
+	//
+	//     /blog/(blog-id:\d+)
+	//
+	// Match ^/blog/(\d+)$ and will pass result of matching (\d+) into handler
+	// as blog-id.
 	Path string
+
 	// Func defines HTTP handler that is used to serve request when route is
 	// matching.
 	//
@@ -51,8 +63,8 @@ func NewRouter(routes Routes) *Router {
 		var names []string
 		raw := builder.ReplaceAllStringFunc(r.Path, func(s string) string {
 			s = s[1 : len(s)-1]
-			// every {<name>} can be optionally contain separate regexp
-			// definition using notation {<name>:<regexp>}
+			// every (<name>) can be optionally contain separate regexp
+			// definition using notation (<name>:<regexp>)
 			chunks := strings.SplitN(s, ":", 2)
 			if len(chunks) == 1 {
 				names = append(names, s)
@@ -61,7 +73,7 @@ func NewRouter(routes Routes) *Router {
 			names = append(names, chunks[0])
 			return `(` + chunks[1] + `)`
 		})
-		// replace {} with regular expressions syntax
+		// replace () with regular expressions syntax
 		rx, err := regexp.Compile(`^` + raw + `$`)
 		if err != nil {
 			panic(fmt.Sprintf("invalid routing path %q: %s", r.Path, err))

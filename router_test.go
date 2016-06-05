@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -208,4 +209,30 @@ func has(a []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func ExampleNewRouter() {
+	handleList := func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `[1, 2, 3, 4]`)
+	}
+	handleSet := func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+		id := Args(ctx).ByName("id")
+		fmt.Fprint(w, id)
+	}
+	handleGet := func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+		id := Args(ctx).ByIndex(0)
+		fmt.Fprint(w, id)
+	}
+
+	router := NewRouter(Routes{
+		{`/blog`, handleList, "GET"},
+		{`/blog/(id:\d+)`, handleSet, "POST,PUT"},
+		{`/blog/(id)`, handleGet, "GET"},
+	})
+
+	// ServeHTTP use empty context
+	router.ServeHTTP(nil, nil)
+
+	// ServeCtxHTTP use given context instead of empty one
+	router.ServeCtxHTTP(context.Background(), nil, nil)
 }

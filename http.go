@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 func JSONResp(w http.ResponseWriter, content interface{}, code int) {
 	b, err := json.MarshalIndent(content, "", "\t")
 	if err != nil {
+		log.Printf("cannot serialize content: %s", err)
 		code = http.StatusInternalServerError
 		b = []byte(`{"errors":["Internal Server Errror"]}`)
 	}
