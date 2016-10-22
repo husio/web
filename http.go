@@ -3,18 +3,14 @@ package web
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
-
-	"golang.org/x/net/context"
 )
 
 // JSONResp write content as JSON encoded response.
 func JSONResp(w http.ResponseWriter, content interface{}, code int) {
 	b, err := json.MarshalIndent(content, "", "\t")
 	if err != nil {
-		log.Printf("cannot serialize content: %s", err)
 		code = http.StatusInternalServerError
 		b = []byte(`{"errors":["Internal Server Errror"]}`)
 	}
@@ -82,21 +78,21 @@ func Modified(w http.ResponseWriter, r *http.Request, modtime time.Time) bool {
 	return true
 }
 
-// StdJSONHandler return HandlerFunc that always response with JSON encoded,
+// StdJSONHandler return HTTP handler that always response with JSON encoded,
 // standard for given status code text message.
-func StdJSONHandler(code int) HandlerFunc {
-	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+func StdJSONHandler(code int) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		StdJSONResp(w, code)
-	}
+	})
 }
 
-// StdTextHandler return HandlerFunc that always response with text/plain
+// StdTextHandler return HTTP handler that always response with text/plain
 // formatted, standard for given status code text message.
-func StdTextHandler(code int) HandlerFunc {
-	return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+func StdTextHandler(code int) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.WriteHeader(code)
 		fmt.Fprintln(w, http.StatusText(code))
-	}
+	})
 }

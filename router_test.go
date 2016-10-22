@@ -4,235 +4,154 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
-
-	"golang.org/x/net/context"
 )
 
-func TestRouting(t *testing.T) {
-	var result struct {
-		id     int
-		values []string
-	}
-	testhandler := func(id int, names ...string) HandlerFunc {
-		return func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-			var values []string
-			for _, name := range names {
-				values = append(values, Args(ctx).ByName(name))
-			}
-			result.id = id
-			result.values = values
-		}
-	}
-
-	rt := NewRouter(Routes{
-		{`/x/(w:\w+)/(n:\d+)`, testhandler(11, "w", "n"), "GET"},
-		{`/x/(n:\d+)/(w:\w+)`, testhandler(12, "w", "n"), "GET"},
-		{`/x/(n:\d+)-(w:\w+)`, testhandler(13, "w", "n"), "GET"},
-
-		{`/x/321`, testhandler(22), "GET"},
-		{`/x/(first)`, testhandler(21, "first"), "GET"},
-
-		{`/`, testhandler(31), "GET"},
-		{`/(a)/(b)`, testhandler(32, "a", "b"), "GET"},
-		{`/(a)/(b)/(c)`, testhandler(33, "a", "b", "c"), "GET"},
-		{`/(a)/(b)/(c)/(d)`, testhandler(34, "a", "b", "c", "d"), "GET"},
+func TestRouter(t *testing.T) {
+	rt := NewRouter()
+	rt.AddFn(`/fruits`, "*", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s fruits", r.Method)
+	})
+	rt.AddFn(`/fruits/(name:\d+)`, "*", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s n=%s", r.Method, PathArg(r.Context(), 0))
+	})
+	rt.AddFn(`/fruits/(name)`, "GET", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "get %s", PathArg(r.Context(), 0))
+	})
+	rt.AddFn(`/fruits/(name)`, "DELETE", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "rm %s", PathArg(r.Context(), 0))
 	})
 
-	var testCases = []struct {
-		method     string
-		path       string
-		wantID     int
-		wantValues []string
+	cases := map[string]struct {
+		method   string
+		path     string
+		wantCode int
+		wantBody string
 	}{
-		{"GET", "/", 31, nil},
-		{"POST", "/", 0, nil},
-		{"GET", "/foo/bar", 32, []string{"foo", "bar"}},
-		{"GET", "/foo/bar/baz", 33, []string{"foo", "bar", "baz"}},
-		{"GET", "/x/x/x/x/x/x/x/x/x/x/x", 0, nil},
-
-		{"GET", "/x/33", 21, []string{"33"}},
-		{"GET", "/x/321", 22, nil},
-
-		{"GET", "/x/foo/321", 11, []string{"foo", "321"}},
-		{"GET", "/x/321/foo", 12, []string{"321", "foo"}},
-		{"GET", "/x/123-321", 13, []string{"123", "321"}},
+		"create_fruit": {
+			method:   "POST",
+			path:     "/fruits",
+			wantCode: http.StatusOK,
+			wantBody: "POST fruits",
+		},
+		"list_fruits": {
+			method:   "GET",
+			path:     "/fruits",
+			wantCode: http.StatusOK,
+			wantBody: "GET fruits",
+		},
+		"get_apple": {
+			method:   "GET",
+			path:     "/fruits/apple",
+			wantCode: http.StatusOK,
+			wantBody: "get apple",
+		},
+		"get_n": {
+			method:   "PUT",
+			path:     "/fruits/321",
+			wantCode: http.StatusOK,
+			wantBody: "PUT n=321",
+		},
+		"delete_apple": {
+			method:   "DELETE",
+			path:     "/fruits/apple",
+			wantCode: http.StatusOK,
+			wantBody: "rm apple",
+		},
+		"update_apple_is_not_allowed": {
+			method:   "PUT",
+			path:     "/fruits/apple",
+			wantCode: http.StatusMethodNotAllowed,
+			wantBody: http.StatusText(http.StatusMethodNotAllowed),
+		},
+		"not_found": {
+			method:   "GET",
+			path:     "/car/land-rover",
+			wantCode: http.StatusNotFound,
+			wantBody: http.StatusText(http.StatusNotFound),
+		},
 	}
 
-	for i, tc := range testCases {
-		result.id = 0
-		result.values = nil
-
+	for tname, tc := range cases {
+		w := httptest.NewRecorder()
 		r, err := http.NewRequest(tc.method, tc.path, nil)
 		if err != nil {
-			t.Fatalf("%d: cannot create request: %s", i, err)
-		}
-		rt.ServeHTTP(httptest.NewRecorder(), r)
-		if result.id != tc.wantID {
-			t.Errorf("%d: want result %d, got %d", i, tc.wantID, result.id)
-		}
-		if result.values != nil && tc.wantValues != nil {
-			if d := diff(result.values, tc.wantValues); len(d) != 0 {
-				t.Errorf("%d: want values %#v, got %#v: %v", i, tc.wantValues, result.values, d)
-			}
+			t.Errorf("%s: cannot create request: %s", tname, err)
+			continue
 		}
 
+		rt.ServeHTTP(w, r)
+
+		if w.Code != tc.wantCode {
+			t.Errorf("%s: want %d status code, got %d", tname, tc.wantCode, w.Code)
+		}
+		if want, got := strings.TrimSpace(w.Body.String()), strings.TrimSpace(tc.wantBody); want != got {
+			t.Errorf("%s: want %q, got %q", tname, want, got)
+		}
 	}
 }
 
-func TestHandlerTypes(t *testing.T) {
-	cases := map[string]interface{}{
-		"http.Handler": teapothandler{},
-		"http.HandlerFunc": func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusTeapot)
-		},
-		"http.HandlerFunc2": http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusTeapot)
-		}),
-		"ServeCtxHTTP": teapothandler2{},
-		"HanndlerFunc": func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusTeapot)
-		},
-		"HanndlerFunc2": HandlerFunc(func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusTeapot)
-		}),
-		"Router": NewRouter(Routes{
-			{`.*`, func(ctx context.Context, w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) }, "*"},
-		}),
-	}
+func BenchmarkRouterFastFind(b *testing.B) {
+	r, _ := http.NewRequest("GET", "/books", nil)
+	rt := testRouter()
 
-	for name, hn := range cases {
-		rt := NewRouter(Routes{{`/`, hn, "*"}})
-		r, _ := http.NewRequest("GET", "/", nil)
+	for i := 0; i < b.N; i++ {
 		w := httptest.NewRecorder()
 		rt.ServeHTTP(w, r)
-		if w.Code != http.StatusTeapot {
-			t.Errorf("%s: got %d, %v", name, w.Code, w.Body)
-		}
 	}
 }
 
-type teapothandler struct{}
+func BenchmarkRouterSlowFind(b *testing.B) {
+	r, _ := http.NewRequest("DELETE", "/fruits/apple/whatever", nil)
+	rt := testRouter()
 
-func (h teapothandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusTeapot)
-}
-
-type teapothandler2 struct{}
-
-func (h teapothandler2) ServeCtxHTTP(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusTeapot)
-}
-
-func TestRouterDefaultNotFound(t *testing.T) {
-	rt := NewRouter(Routes{
-		{`/foo`, handleWithPanic, "GET"},
-	})
-
-	r, _ := http.NewRequest("GET", "/baz", nil)
-	w := httptest.NewRecorder()
-	rt.ServeHTTP(w, r)
-	if w.Code != http.StatusNotFound {
-		t.Errorf("got %d: %s", w.Code, w.Body)
+	for i := 0; i < b.N; i++ {
+		w := httptest.NewRecorder()
+		rt.ServeHTTP(w, r)
 	}
 }
 
-func TestRouterCustomNotFound(t *testing.T) {
-	rt := NewRouter(Routes{
-		{`/foo`, handleWithPanic, "GET"},
-	})
-	rt.NotFound = func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusTeapot)
-	}
+func BenchmarkRouterNotFound(b *testing.B) {
+	r, _ := http.NewRequest("GET", "/does-not-exist", nil)
+	rt := testRouter()
 
-	r, _ := http.NewRequest("GET", "/bar", nil)
-	w := httptest.NewRecorder()
-	rt.ServeHTTP(w, r)
-	if w.Code != http.StatusTeapot {
-		t.Errorf("got %d: %s", w.Code, w.Body)
+	for i := 0; i < b.N; i++ {
+		w := httptest.NewRecorder()
+		rt.ServeHTTP(w, r)
 	}
 }
 
-func TestRouterDefaultMethodNotAllowed(t *testing.T) {
-	rt := NewRouter(Routes{
-		{`/foo`, handleWithPanic, "GET"},
-	})
+func BenchmarkRouterMethodNotAllowed(b *testing.B) {
+	r, _ := http.NewRequest("POST", "/fruits/apple/whatever", nil)
+	rt := testRouter()
 
-	r, _ := http.NewRequest("POST", "/foo", nil)
-	w := httptest.NewRecorder()
-	rt.ServeHTTP(w, r)
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Errorf("got %d: %s", w.Code, w.Body)
+	for i := 0; i < b.N; i++ {
+		w := httptest.NewRecorder()
+		rt.ServeHTTP(w, r)
 	}
 }
 
-func TestRouterCustomMethodNotAllowed(t *testing.T) {
-	rt := NewRouter(Routes{
-		{`/foo`, handleWithPanic, "GET"},
-	})
-	rt.MethodNotAllowed = func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusTeapot)
+func testRouter() http.Handler {
+	rt := NewRouter()
+
+	noopHandler := func(w http.ResponseWriter, r *http.Request) {}
+
+	rt.AddFn(`/books`, "GET", noopHandler)
+	rt.AddFn(`/books`, "POST", noopHandler)
+	rt.AddFn(`/books/(book-id)`, "GET", noopHandler)
+	rt.AddFn(`/books/(book-id)`, "POST", noopHandler)
+	rt.AddFn(`/books/(book-id)`, "PUT", noopHandler)
+	rt.AddFn(`/books/(book-id)`, "DELETE", noopHandler)
+
+	// few more routes just to make it more "real life"
+	for i := 0; i < 50; i++ {
+		rt.AddFn(fmt.Sprintf("/number/%d/(action-name)", i), "*", noopHandler)
 	}
 
-	r, _ := http.NewRequest("POST", "/foo", nil)
-	w := httptest.NewRecorder()
-	rt.ServeHTTP(w, r)
-	if w.Code != http.StatusTeapot {
-		t.Errorf("got %d: %s", w.Code, w.Body)
-	}
-}
+	rt.AddFn(`/fruits`, "*", noopHandler)
+	rt.AddFn(`/fruits/(fruit-name:\w+)`, "*", noopHandler)
+	rt.AddFn(`/fruits/(fruit-name:\w+)/whatever`, "DELETE", noopHandler)
 
-func handleWithPanic(context.Context, http.ResponseWriter, *http.Request) {
-	panic("!")
-}
-
-func diff(a, b []string) []string {
-	var diff []string
-
-	for _, s := range a {
-		if !has(b, s) {
-			diff = append(diff, s)
-		}
-	}
-	for _, s := range b {
-		if !has(a, s) {
-			diff = append(diff, s)
-		}
-	}
-	return diff
-}
-
-func has(a []string, s string) bool {
-	for _, el := range a {
-		if el == s {
-			return true
-		}
-	}
-	return false
-}
-
-func ExampleNewRouter() {
-	handleList := func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `[1, 2, 3, 4]`)
-	}
-	handleSet := func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		id := Args(ctx).ByName("id")
-		fmt.Fprint(w, id)
-	}
-	handleGet := func(ctx context.Context, w http.ResponseWriter, r *http.Request) {
-		id := Args(ctx).ByIndex(0)
-		fmt.Fprint(w, id)
-	}
-
-	router := NewRouter(Routes{
-		{`/blog`, handleList, "GET"},
-		{`/blog/(id:\d+)`, handleSet, "POST,PUT"},
-		{`/blog/(id)`, handleGet, "GET"},
-	})
-
-	// ServeHTTP use empty context
-	router.ServeHTTP(nil, nil)
-
-	// ServeCtxHTTP use given context instead of empty one
-	router.ServeCtxHTTP(context.Background(), nil, nil)
+	return rt
 }

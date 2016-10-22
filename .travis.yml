@@ -1,8 +1,7 @@
 language: go
 
 go:
-- 1.6
-- tip
+- 1.7
 
 script:
 - go test -v -race -timeout=90s github.com/husio/web/...
