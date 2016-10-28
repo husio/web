@@ -14,13 +14,13 @@ func TestRouter(t *testing.T) {
 		fmt.Fprintf(w, "%s fruits", r.Method)
 	})
 	rt.AddFn(`/fruits/(name:\d+)`, "*", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "%s n=%s", r.Method, PathArg(r.Context(), 0))
+		fmt.Fprintf(w, "%s n=%s", r.Method, PathArg(r, 0))
 	})
 	rt.AddFn(`/fruits/(name)`, "GET", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "get %s", PathArg(r.Context(), 0))
+		fmt.Fprintf(w, "get %s", PathArg(r, 0))
 	})
 	rt.AddFn(`/fruits/(name)`, "DELETE", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "rm %s", PathArg(r.Context(), 0))
+		fmt.Fprintf(w, "rm %s", PathArg(r, 0))
 	})
 
 	cases := map[string]struct {

@@ -113,8 +113,8 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // PathArg return value as matched by path regexp at given index.
-func PathArg(ctx context.Context, index int) string {
-	args, ok := ctx.Value("web:patharg").([]string)
+func PathArg(r *http.Request, index int) string {
+	args, ok := r.Context().Value("web:patharg").([]string)
 	if !ok {
 		return ""
 	}
